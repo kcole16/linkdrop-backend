@@ -79,7 +79,7 @@ router.get('/', async ctx => {
         sender: creatorKeyJson.account_id
     });
     const result = await contract.send({public_key: keypair.publicKey.toString().split(':')[1]}, BOATLOAD_OF_GAS);
-    ctx.body = {'fundingKey': keypair.secretKey.toString()}
+    ctx.body = {"fundingKey": keypair.secretKey.toString()}
 });
 
 
