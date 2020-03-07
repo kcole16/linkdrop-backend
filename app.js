@@ -101,11 +101,6 @@ const verifySignature = async (nearAccount, securityCode, signature) => {
     });
 };
 
-
-const WALLET_URL = process.env.WALLET_URL;
-
-const { parseSeedPhrase } = require('near-seed-phrase');
-
 app
     .use(router.routes())
     .use(router.allowedMethods());
