@@ -1,6 +1,6 @@
 {
   "name": "near-contract-helper",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Micro-service used by NEARStudio to deploy smart contracts.",
   "main": "app.js",
   "scripts": {
