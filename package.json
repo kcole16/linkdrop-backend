@@ -19,6 +19,9 @@
   "bugs": {
     "url": "https://github.com/nearprotocol/near-contract-helper/issues"
   },
+  "engine": {
+    "node": "12.10.0"
+  },
   "homepage": "https://github.com/nearprotocol/near-contract-helper#readme",
   "dependencies": {
     "@koa/cors": "^3.0.0",

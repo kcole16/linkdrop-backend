@@ -36,10 +36,10 @@ const recoveryKeyJson = JSON.parse(process.env.ACCOUNT_RECOVERY_KEY);
 const keyStore = {
     async getKey(networkId, accountId) {
         if (accountId == creatorKeyJson.account_id) {
-            return KeyPair.fromString(creatorKeyJson.secret_key);
+            return KeyPair.fromString(creatorKeyJson.private_key);
         }
         // For account recovery purposes use recovery key when updating any account
-        return KeyPair.fromString(recoveryKeyJson.secret_key);
+        return KeyPair.fromString(recoveryKeyJson.private_key);
     }
 };
 const { connect, KeyPair } = require('nearlib');
@@ -56,54 +56,32 @@ app.use(async (ctx, next) => {
     await next();
 });
 
-const NEW_ACCOUNT_AMOUNT = process.env.NEW_ACCOUNT_AMOUNT;
+// router.post('/account', async ctx => {
+//     const { newAccountId, newAccountPublicKey } = ctx.request.body;
+//     const masterAccount = await ctx.near.account(creatorKeyJson.account_id);
+//     ctx.body = await masterAccount.createAccount(newAccountId, newAccountPublicKey, NEW_ACCOUNT_AMOUNT);
+// });
 
-router.post('/account', async ctx => {
-    const { newAccountId, newAccountPublicKey } = ctx.request.body;
+const LINKDROP_CONTRACT_ID = 'linkdrop-test-1';
+const BOATLOAD_OF_GAS = '10000000000000000';
+
+router.get('/', async ctx => {
+    // Generate temp keypair
+    const keypair = KeyPair.fromRandom('ed25519'); 
+
     const masterAccount = await ctx.near.account(creatorKeyJson.account_id);
-    ctx.body = await masterAccount.createAccount(newAccountId, newAccountPublicKey, NEW_ACCOUNT_AMOUNT);
-});
 
-const password = require('secure-random-password');
-const models = require('./models');
-const FROM_PHONE = process.env.TWILIO_FROM_PHONE;
-const SECURITY_CODE_DIGITS = 6;
-
-const sendSms = async ({ to, text }) => {
-    if (process.env.NODE_ENV == 'production') {
-        const accountSid = process.env.TWILIO_ACCOUNT_SID;
-        const authToken = process.env.TWILIO_AUTH_TOKEN;
-        const client = require('twilio')(accountSid, authToken);
-        await client.messages
-            .create({
-                body: text,
-                from: FROM_PHONE,
-                to
-            });
-    } else {
-        console.log('sendSms:', { to, text });
-    }
-};
-
-const sendSecurityCode = async ({ phoneNumber, securityCode }) => {
-    return sendSms({
-        text: `Your NEAR Wallet security code is: ${securityCode}`,
-        to: phoneNumber
+    // Create TX to send to linkdrop contract
+    console.log(keypair.publicKey.toString().split(':')[1])
+    const contract = await ctx.near.loadContract(LINKDROP_CONTRACT_ID, {
+        viewMethods: [],
+        changeMethods: ['send', 'claim', 'create_account_and_claim'],
+        sender: creatorKeyJson.account_id
     });
-};
-
-router.post('/account/:phoneNumber/:accountId/requestCode', async ctx => {
-    const accountId = ctx.params.accountId;
-    const phoneNumber = ctx.params.phoneNumber;
-
-    const securityCode = password.randomPassword({ length: SECURITY_CODE_DIGITS, characters: password.digits });
-    const [account] = await models.Account.findOrCreate({ where: { accountId, phoneNumber } });
-    await account.update({ securityCode });
-    // TODO: Add code expiration for improved security
-    await sendSecurityCode(account);
-
-    ctx.body = {};
+    const result = await contract.send({public_key: keypair.publicKey.toString().split(':')[1]}, BOATLOAD_OF_GAS);
+    ctx.body = keypair.secretKey.toString()
 });
+
 
 const nacl = require('tweetnacl');
 const crypto = require('crypto');
@@ -123,124 +101,17 @@ const verifySignature = async (nearAccount, securityCode, signature) => {
     });
 };
 
-// TODO: Different endpoints for setup and recovery
-router.post('/account/:phoneNumber/:accountId/validateCode', async ctx => {
-    const { phoneNumber, accountId } = ctx.params;
-    const { securityCode, signature, publicKey } = ctx.request.body;
-
-    const account = await models.Account.findOne({ where: { accountId, phoneNumber } });
-    if (!account || !account.securityCode || account.securityCode != securityCode) {
-        ctx.throw(401);
-    }
-    if (!account.confirmed) {
-        const nearAccount = await ctx.near.account(accountId);
-        const isSignatureValid = await verifySignature(nearAccount, securityCode, signature);
-        if (!isSignatureValid) {
-            ctx.throw(401);
-        }
-        await account.update({ securityCode: null, confirmed: true });
-    } else {
-        await (await ctx.near.account(accountId)).addKey(publicKey);
-        await account.update({ securityCode: null });
-    }
-
-    ctx.body = {};
-});
-
-const sendMail = async (options) => {
-    if (process.env.NODE_ENV == 'production') {
-        const nodemailer = require('nodemailer');
-        const transport = nodemailer.createTransport({
-            host: process.env.MAIL_HOST,
-            port: process.env.MAIL_PORT,
-            auth: {
-                user: process.env.MAIL_USER,
-                pass: process.env.MAIL_PASSWORD
-            }
-        });
-        return transport.sendMail({
-            from: 'wallet@nearprotocol.com',
-            ...options
-        });
-    } else {
-        console.log('sendMail:', options);
-    }
-};
 
 const WALLET_URL = process.env.WALLET_URL;
-const sendRecoveryMessage = async ({ accountId, phoneNumber, email, seedPhrase }) => {
-    const recoverUrl = `${WALLET_URL}/recover-with-link/${encodeURIComponent(accountId)}/${encodeURIComponent(seedPhrase)}`;
-    if (phoneNumber) {
-        await sendSms({
-            text: `Your NEAR Wallet (${accountId}) recovery link is: ${recoverUrl}\nSave this message in a secure place to allow you to recover account.`,
-            to: phoneNumber
-        });
-    } else if (email) {
-        await sendMail({
-            to: email,
-            subject: `Important: Near Wallet Recovery Email for ${accountId}`,
-            text:
-`Hi ${accountId},
-
-This email contains your NEAR Wallet account recovery link.
-
-Keep this email safe, and DO NOT SHARE IT! We cannot resend this email.
-
-Click below to recover your account.
-
-${recoverUrl}
-`,
-            html:
-`<p>Hi ${accountId},</p>
-
-<p>This email contains your NEAR Wallet account recovery link.</p>
-
-<p>Keep this email safe, and DO NOT SHARE IT! We cannot resend this email.</p>
-
-<p>Click below to recover your account.</p>
-
-<a href="${recoverUrl}">Recover Account</a>
-`
-
-        });
-    } else {
-        throw new Error(`Account ${accountId} has no contact information`);
-    }
-};
 
 const { parseSeedPhrase } = require('near-seed-phrase');
-
-router.post('/account/sendRecoveryMessage', async ctx => {
-    const { accountId, phoneNumber, email, seedPhrase } = ctx.request.body;
-
-    // TODO: Validate phone or email
-
-    // Verify that seed phrase is added to the account
-    const { publicKey } = parseSeedPhrase(seedPhrase);
-    const nearAccount = await ctx.near.account(accountId);
-    const keys = await nearAccount.getAccessKeys();
-    if (!keys.some(key => key.public_key == publicKey)) {
-        ctx.throw(403, 'seed phrase doesn\'t match any access keys');
-    }
-
-    const where = { accountId };
-    if (phoneNumber) {
-        where.phoneNumber = phoneNumber;
-    } else if (email) {
-        where.email = email;
-    }
-    const [account] = await models.Account.findOrCreate({ where });
-    await sendRecoveryMessage({ ...account.dataValues, seedPhrase });
-
-    ctx.body = {};
-});
 
 app
     .use(router.routes())
     .use(router.allowedMethods());
 
 if (!module.parent) {
-    app.listen(process.env.PORT);
+    app.listen(3000);
 } else {
     module.exports = app;
 }
