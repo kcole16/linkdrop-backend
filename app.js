@@ -64,6 +64,8 @@ app.use(async (ctx, next) => {
 
 const LINKDROP_CONTRACT_ID = 'linkdrop-test-1';
 const BOATLOAD_OF_GAS = '10000000000000000';
+const INITIAL_FUNDING = '100000000000000000000';
+
 
 router.get('/', async ctx => {
     // Generate temp keypair
@@ -78,7 +80,7 @@ router.get('/', async ctx => {
         changeMethods: ['send', 'claim', 'create_account_and_claim'],
         sender: creatorKeyJson.account_id
     });
-    const result = await contract.send({public_key: keypair.publicKey.toString().split(':')[1]}, BOATLOAD_OF_GAS);
+    const result = await contract.send({public_key: keypair.publicKey.toString().split(':')[1]}, BOATLOAD_OF_GAS, INITIAL_FUNDING).catch(err => console.log(err));
     ctx.body = {"fundingKey": keypair.secretKey.toString()}
 });
 
